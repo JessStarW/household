@@ -1,5 +1,5 @@
 /* Service Worker —— PWA 轻档：缓存应用壳层，实现离线打开与可安装 */
-const CACHE = "hlw-pwa-v3";
+const CACHE = "hlw-pwa-v4";
 // 缓存的应用壳层文件（相对路径，便于整体部署到子目录）
 const ASSETS = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png", "sw.js"];
 

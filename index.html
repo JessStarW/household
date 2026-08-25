@@ -147,6 +147,14 @@
   .tree-mid{font-size:14px;padding:8px 16px 8px 28px;color:var(--ink);}
   .tree-small{font-size:13px;padding:5px 16px 5px 44px;color:var(--muted);}
   .badge-custom{font-size:10px;background:var(--green);color:#fff;border-radius:4px;padding:0 4px;margin-left:6px;}
+  /* 分类页：数量徽标与行内操作按钮 */
+  .cnt{display:inline-block;background:var(--green);color:#fff;font-size:11px;font-weight:600;border-radius:10px;padding:0 7px;margin-left:6px;vertical-align:middle;}
+  .cat-acts{float:right;display:inline-flex;gap:4px;margin-left:8px;}
+  .mini{border:0;background:transparent;cursor:pointer;font-size:13px;padding:1px 5px;border-radius:6px;line-height:1;color:var(--green);}
+  .mini.danger{color:var(--danger);}
+  .mini:active{background:var(--green-soft);}
+  .picker-search{padding:8px 16px 0;}
+  .tree-empty{font-size:13px;color:var(--muted);padding:18px 16px;}
 </style>
 </head>
 <body>
@@ -252,7 +260,7 @@
     </div>
     <div class="item" style="display:block;">
       <div class="name">关于</div>
-      <div class="hint" style="margin-top:6px;">v3 · PWA 可安装版 · 本地 IndexedDB 存储 · 可离线打开、可装到主屏 · 含到期提醒（到期前 30 天提示）<br>分类锚定公开标准（京东居家/厨具、日用百货百科）。</div>
+      <div class="hint" style="margin-top:6px;">v4 · PWA 可安装版 · 本地 IndexedDB 存储 · 可离线打开、可装到主屏 · 含到期提醒（到期前 30 天提示）<br>分类选择支持搜索+快速新建；分类栏支持删改并显示每类物品数量。<br>分类锚定公开标准（京东居家/厨具、日用百货百科）。</div>
     </div>
   </section>
 </main>
@@ -270,6 +278,9 @@
     <div class="modal-head">
       <h3>选择分类</h3>
       <button class="btn ghost sm" id="pickerCancel">取消</button>
+    </div>
+    <div class="picker-search">
+      <input id="pickerSearch" class="text-input" type="search" placeholder="搜索分类（如：洗发、厨房）…" style="margin:0;">
     </div>
     <div class="picker-path" id="pickerPath">已选：<b>无</b></div>
     <div class="modal-body" id="pickerBody"></div>
@@ -370,26 +381,25 @@ function allItems(){return tx("items","readonly").then(s=>new Promise((r,rej)=>{
 function getKV(k){return tx("kv","readonly").then(s=>new Promise((r,rej)=>{const q=s.get(k);q.onsuccess=()=>r(q.result?q.result.val:undefined);q.onerror=()=>rej(q.error);}));}
 function setKV(k,v){return tx("kv","readwrite").then(s=>new Promise(r=>{s.put({key:k,val:v});s.transaction.oncomplete=r;}));}
 
-/* ============ 自定义分类（用户自建，持久化） ============ */
-let customCats={};            // 结构同 DEFAULT_TAXONOMY
-async function loadCustom(){customCats=await getKV("customCats")||{};}
-function saveCustom(){return setKV("customCats",customCats);}
-function mergeTaxonomy(){
-  const m=JSON.parse(JSON.stringify(DEFAULT_TAXONOMY));
-  for(const big in customCats){
-    if(!m[big]) m[big]={};
-    for(const mid in customCats[big]){
-      if(!m[big][mid]) m[big][mid]=[];
-      for(const sm of customCats[big][mid]) if(!m[big][mid].includes(sm)) m[big][mid].push(sm);
-    }
-  }
-  return m;
+/* ============ 分类树（单一可变结构，持久化于 KV，支持增删改） ============ */
+let taxonomy={};            // 结构：big -> mid -> [small]
+async function loadTaxonomy(){
+  const saved=await getKV("taxonomy");
+  if(saved && Object.keys(saved).length){taxonomy=saved;return;}
+  // 首次启动：用默认分类树初始化
+  taxonomy=JSON.parse(JSON.stringify(DEFAULT_TAXONOMY));
+  // 兼容旧版 customCats（v1~v3 数据平滑迁移）
+  const legacy=await getKV("customCats");
+  if(legacy){for(const b in legacy){if(!taxonomy[b])taxonomy[b]={};for(const m in legacy[b]){if(!taxonomy[b][m])taxonomy[b][m]=[];for(const s of legacy[b][m]) if(!taxonomy[b][m].includes(s)) taxonomy[b][m].push(s);}}}
+  await saveTaxonomy();
 }
+function saveTaxonomy(){return setKV("taxonomy",taxonomy);}
+function getTaxonomy(){return taxonomy;}
 function addCustom(big,mid,small){
-  if(!customCats[big]) customCats[big]={};
-  if(!customCats[big][mid]) customCats[big][mid]=[];
-  if(small && !customCats[big][mid].includes(small)) customCats[big][mid].push(small);
-  return saveCustom();
+  if(!taxonomy[big]) taxonomy[big]={};
+  if(!taxonomy[big][mid]) taxonomy[big][mid]=[];
+  if(small && !taxonomy[big][mid].includes(small)) taxonomy[big][mid].push(small);
+  return saveTaxonomy();
 }
 
 /* ============ 照片压缩（参数说明：maxEdge 最长边像素上限；quality JPEG 压缩率 0~1） ============ */
@@ -450,7 +460,7 @@ function renderList(){
       (expOver>0?'（其中 '+expOver+' 件已过期）':'')+'，请优先使用。</div>';
   }
   box.innerHTML=banner+arr.map(it=>{
-    const cat=it.cat?it.cat.big+"/"+it.cat.mid+"/"+it.cat.small:"";
+    const cat=catLabel(it.cat);
     const thumb=it.photo?'<img class="thumb" src="'+it.photo+'">':'<div class="thumb">无图</div>';
     const out=it.qty<=0?'<span class="empty-badge">已用完</span>':"";
     // 到期文案：d<=0 已过期(红)；0<d<=30 即将到期(琥珀)；否则有效期至(绿)
@@ -477,20 +487,90 @@ function renderList(){
 }
 
 function renderTree(){
-  const t=mergeTaxonomy();
+  const t=getTaxonomy();
+  const cnt=countByCat();
   const box=document.getElementById("catTree");
   let html="";
-  for(const big in t){
-    html+='<div class="tree-big">'+esc(big)+'</div>';
+  const bigs=Object.keys(t);
+  if(bigs.length===0){box.innerHTML='<div class="tree-empty">还没有分类，点下方「＋ 新建分类」开始添加。</div>';return;}
+  for(const big of bigs){
+    const c=cnt.big[big]||0;
+    html+='<div class="tree-big">'+esc(big)+
+      ' <span class="cnt">'+c+'</span>'+
+      ' <span class="cat-acts"><button class="mini" onclick="editCat(\''+jsesc(big)+'\',\'\',\'\')">✎</button>'+
+      '<button class="mini danger" onclick="deleteCat(\''+jsesc(big)+'\',\'\',\'\')">🗑</button></span></div>';
     for(const mid in t[big]){
-      html+='<div class="tree-mid">'+esc(mid)+'</div>';
-      for(const sm of t[big][mid]) html+='<div class="tree-small">· '+esc(sm)+'</div>';
+      const cm=cnt.mid[big+"/"+mid]||0;
+      html+='<div class="tree-mid">'+esc(mid)+
+        ' <span class="cnt">'+cm+'</span>'+
+        ' <span class="cat-acts"><button class="mini" onclick="editCat(\''+jsesc(big)+'\',\''+jsesc(mid)+'\',\'\')">✎</button>'+
+        '<button class="mini danger" onclick="deleteCat(\''+jsesc(big)+'\',\''+jsesc(mid)+'\',\'\')">🗑</button></span></div>';
+      for(const sm of t[big][mid]){
+        const cs=cnt.small[big+"/"+mid+"/"+sm]||0;
+        html+='<div class="tree-small">· '+esc(sm)+
+          ' <span class="cnt">'+cs+'</span>'+
+          ' <span class="cat-acts"><button class="mini" onclick="editCat(\''+jsesc(big)+'\',\''+jsesc(mid)+'\',\''+jsesc(sm)+'\')">✎</button>'+
+          '<button class="mini danger" onclick="deleteCat(\''+jsesc(big)+'\',\''+jsesc(mid)+'\',\''+jsesc(sm)+'\')">🗑</button></span></div>';
+      }
     }
   }
   box.innerHTML=html;
 }
 
 function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function jsesc(s){return (s||"").replace(/[\\'"]/g,c=>({"\\":"\\\\","'":"\\'","\"":"\\\""}[c]));}
+function catLabel(cat){if(!cat)return "";return [cat.big,cat.mid,cat.small].filter(x=>x).join(" / ");}
+function countByCat(){
+  const big={},mid={},small={};
+  for(const it of items){
+    if(!it.cat)continue;
+    const b=it.cat.big; if(b) big[b]=(big[b]||0)+1;
+    const m=it.cat.mid; if(m) mid[b+"/"+m]=(mid[b+"/"+m]||0)+1;
+    const s=it.cat.small; if(s) small[b+"/"+m+"/"+s]=(small[b+"/"+m+"/"+s]||0)+1;
+  }
+  return {big,mid,small};
+}
+function catItemCount(level,big,mid,small){
+  return items.filter(it=>{
+    if(!it.cat)return false;
+    if(level==="big")return it.cat.big===big;
+    if(level==="mid")return it.cat.big===big&&it.cat.mid===mid;
+    return it.cat.big===big&&it.cat.mid===mid&&it.cat.small===small;
+  }).length;
+}
+/* 分类删改：改名同步更新相关物品，删除保留物品、仅移出分类列表 */
+async function editCat(big,mid,small){
+  const level=small?"small":(mid?"mid":"big");
+  const oldName=small||mid||big;
+  const nn=prompt("修改分类名称（"+(level==="big"?"大类":level==="mid"?"中类":"小类")+"）：",oldName);
+  if(!nn)return;
+  const newName=nn.trim();
+  if(!newName||newName===oldName)return;
+  if(level==="big"){ if(taxonomy[newName]){alert("已存在同名大类");return;} taxonomy[newName]=taxonomy[big]; delete taxonomy[big]; await updateItemsCat({big},newName,"big"); }
+  else if(level==="mid"){ if(taxonomy[big][newName]){alert("该大类下已存在同名中类");return;} taxonomy[big][newName]=taxonomy[big][mid]; delete taxonomy[big][mid]; await updateItemsCat({big,mid},newName,"mid"); }
+  else { if(taxonomy[big][mid].includes(newName)){alert("该中类下已存在同名小类");return;} taxonomy[big][mid][taxonomy[big][mid].indexOf(small)]=newName; await updateItemsCat({big,mid,small},newName,"small"); }
+  await saveTaxonomy(); await refresh();
+}
+async function deleteCat(big,mid,small){
+  const level=small?"small":(mid?"mid":"big");
+  const c=catItemCount(level,big,mid,small);
+  const label=level==="big"?"大类":level==="mid"?"中类":"小类";
+  let msg="确定删除该"+label+"？";
+  if(c>0) msg+="\n该分类下现有 "+c+" 件物品。\n删除分类不会删除物品，仅从分类列表中移除；相关物品仍可在「清单」中按原记录查看。";
+  if(!confirm(msg))return;
+  if(level==="big"){ delete taxonomy[big]; }
+  else if(level==="mid"){ delete taxonomy[big][mid]; }
+  else { taxonomy[big][mid].splice(taxonomy[big][mid].indexOf(small),1); }
+  await saveTaxonomy(); await refresh();
+}
+async function updateItemsCat(oldPath,newName,level){
+  for(const it of items){
+    if(!it.cat)continue;
+    if(level==="big"&&it.cat.big===oldPath.big){it.cat.big=newName;await putItem(it);}
+    else if(level==="mid"&&it.cat.big===oldPath.big&&it.cat.mid===oldPath.mid){it.cat.mid=newName;await putItem(it);}
+    else if(level==="small"&&it.cat.big===oldPath.big&&it.cat.mid===oldPath.mid&&it.cat.small===oldPath.small){it.cat.small=newName;await putItem(it);}
+  }
+}
 
 /* ============ 存货管理 ============ */
 async function changeQty(id,delta){
@@ -559,20 +639,24 @@ document.getElementById("saveBtn").addEventListener("click",async()=>{
 
 function showCatText(){
   const t=document.getElementById("catPickText"),b=document.getElementById("catPickBtn");
-  if(formCat){b.textContent=formCat.big+" / "+formCat.mid+" / "+formCat.small;b.style.borderStyle="solid";
+  if(formCat){b.textContent=catLabel(formCat);b.style.borderStyle="solid";
     t.textContent="已选分类，点击可重新选择";t.style.display="block";}
   else{b.textContent="点击选择分类";b.style.borderStyle="dashed";t.style.display="none";}
 }
 
 /* ============ 分类选择器（分步弹层） ============ */
 let pickerState={big:null,mid:null};
+let pickerSearchTerm="";
 function openPicker(){
   pickerState={big:null,mid:null};
+  pickerSearchTerm="";
+  const ps=document.getElementById("pickerSearch"); if(ps) ps.value="";
   document.getElementById("pickerMask").classList.add("show");
   renderPicker();
 }
 function renderPicker(){
-  const t=mergeTaxonomy();
+  if(pickerSearchTerm.trim()){ renderPickerSearch(pickerSearchTerm.trim()); return; }
+  const t=getTaxonomy();
   const path=document.getElementById("pickerPath");
   const body=document.getElementById("pickerBody");
   let p="已选：";
@@ -593,6 +677,30 @@ function renderPicker(){
     body.appendChild(optAdd("新建小类",()=>openNewCat("small")));
   }
 }
+/* 分类搜索：输入即过滤现有分类；无结果时一键新建大类 */
+function renderPickerSearch(term){
+  const t=getTaxonomy();
+  const path=document.getElementById("pickerPath");
+  const body=document.getElementById("pickerBody");
+  path.innerHTML="搜索：<b>"+esc(term)+"</b>";
+  body.innerHTML="";
+  const results=[];
+  for(const big in t) for(const mid in t[big]) for(const sm of t[big][mid]){
+    if((big+mid+sm).toLowerCase().includes(term.toLowerCase())) results.push({big,mid,small:sm});
+  }
+  if(results.length===0){
+    body.appendChild(optAdd("新建大类「"+esc(term)+"」",()=>createBigFromSearch(term)));
+    return;
+  }
+  results.forEach(r=> body.appendChild(opt(catLabel(r),()=>confirmPick(r.big,r.mid,r.small))));
+}
+async function createBigFromSearch(term){
+  if(!taxonomy[term]){ taxonomy[term]={"未分类":[]}; await saveTaxonomy(); }
+  formCat={big:term,mid:"未分类",small:""};
+  document.getElementById("pickerMask").classList.remove("show");
+  const ps=document.getElementById("pickerSearch"); if(ps){ps.value="";} pickerSearchTerm="";
+  showCatText();
+}
 function opt(text,fn){const d=document.createElement("div");d.className="opt";d.textContent=text;d.onclick=fn;return d;}
 function optAdd(text,fn){const d=document.createElement("div");d.className="opt";d.innerHTML='<span class="add">＋ '+text+'</span>';d.onclick=fn;return d;}
 function confirmPick(big,mid,small){
@@ -600,13 +708,14 @@ function confirmPick(big,mid,small){
   document.getElementById("pickerMask").classList.remove("show");
 }
 document.getElementById("pickerCancel").onclick=()=>document.getElementById("pickerMask").classList.remove("show");
+document.getElementById("pickerSearch").addEventListener("input",e=>{pickerSearchTerm=e.target.value;renderPicker();});
 
 /* 新建分类弹层 */
 let newCatLevel=null;
 function openNewCat(level){
   newCatLevel=level;
   const ctx=document.getElementById("newCatCtx");
-  const t=mergeTaxonomy();
+  const t=getTaxonomy();
   if(level==="big") ctx.textContent="将创建一个新的【大类】。";
   if(level==="mid") ctx.textContent="将在「"+(pickerState.big||"")+"」下新建【中类】。";
   if(level==="small") ctx.textContent="将在「"+(pickerState.big||"")+" / "+(pickerState.mid||"")+"」下新建【小类】。";
@@ -620,14 +729,14 @@ document.getElementById("newCatSave").onclick=async()=>{
   if(newCatLevel==="big"){addCustom(name,"未分类",null);pickerState.big=name;pickerState.mid=null;}
   if(newCatLevel==="mid"){addCustom(pickerState.big,name,null);pickerState.mid=name;}
   if(newCatLevel==="small"){addCustom(pickerState.big,pickerState.mid,name);confirmPick(pickerState.big,pickerState.mid,name);}
-  await saveCustom();
+  await saveTaxonomy();
   document.getElementById("newCatMask").classList.remove("show");
   renderPicker();renderTree();
 };
 
 /* ============ 备份 / 恢复 ============ */
 document.getElementById("exportBtn").onclick=async()=>{
-  const data={version:1,exportedAt:new Date().toISOString(),customCats,items};
+  const data={version:2,exportedAt:new Date().toISOString(),taxonomy,items};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
   const a=document.createElement("a");
   const d=new Date();const pad=n=>(""+n).padStart(2,"0");
@@ -641,9 +750,10 @@ document.getElementById("importInput").onchange=async e=>{
   const text=await f.text();
   try{
     const data=JSON.parse(text);
-    if(data.customCats) customCats=Object.assign(customCats,data.customCats);
+    if(data.taxonomy) taxonomy=data.taxonomy;
+    else if(data.customCats){ for(const b in data.customCats){ if(!taxonomy[b])taxonomy[b]={}; for(const m in data.customCats[b]){ if(!taxonomy[b][m])taxonomy[b][m]=[]; for(const s of data.customCats[b][m]) if(!taxonomy[b][m].includes(s)) taxonomy[b][m].push(s);} } }
     if(Array.isArray(data.items)){for(const it of data.items) await putItem(it);}
-    await saveCustom();await refresh();
+    await saveTaxonomy();await refresh();
     alert("导入完成，共 "+data.items.length+" 件物品。");
   }catch(err){alert("导入失败：文件格式不正确。");}
   e.target.value="";
@@ -685,7 +795,7 @@ if("serviceWorker" in navigator && location.protocol.startsWith("http")){
 }
 
 /* ============ 启动 ============ */
-(async()=>{await openDB();await loadCustom();await refresh();})();
+(async()=>{await openDB();await loadTaxonomy();await refresh();})();
 </script>
 </body>
 </html>
