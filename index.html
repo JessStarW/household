@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- viewport：移动端满宽、禁止缩放，保证手机上类原生 App 的体验 -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>家中日用品清单</title>
+<!-- PWA：主题色、manifest、iOS 主屏图标 -->
+<meta name="theme-color" content="#3B6D11">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-512.png">
+<style>
+  :root{
+    --green:#3B6D11;        /* 主色：德勤绿，用于标题、按钮、强调 */
+    --green-soft:#EAF3DE;   /* 浅绿底，用于卡片/选中态背景 */
+    --green-mid:#639922;    /* 中绿，用于次级强调 */
+    --ink:#2C2C2A;          /* 主文字 */
+    --muted:#6B7280;        /* 次要文字 */
+    --line:#E3E6DF;         /* 分隔线 */
+    --bg:#F6F8F4;           /* 页面浅灰绿底 */
+    --card:#FFFFFF;         /* 卡片白底 */
+    --danger:#A32D2D;       /* 删除/警告红 */
+    --radius:12px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--ink);
+    max-width:520px;margin:0 auto;min-height:100vh;
+    padding-bottom:78px; /* 给底部导航留位 */
+    -webkit-text-size-adjust:100%;
+  }
+  header{
+    position:sticky;top:0;z-index:20;background:var(--green);
+    color:#fff;padding:14px 16px 12px;
+  }
+  header h1{margin:0;font-size:18px;font-weight:600;letter-spacing:.5px;}
+  .sub{font-size:12px;opacity:.85;margin-top:2px;}
+  .search{
+    margin-top:10px;display:flex;gap:8px;align-items:center;
+    background:rgba(255,255,255,.18);border-radius:10px;padding:8px 12px;
+  }
+  .search input{
+    flex:1;background:transparent;border:0;outline:0;color:#fff;font-size:14px;
+  }
+  .search input::placeholder{color:rgba(255,255,255,.7);}
+  .stat{font-size:12px;opacity:.9;margin-top:6px;}
+
+  main{padding:14px 14px 0;}
+  .view{display:none;}
+  .view.active{display:block;}
+
+  /* 列表卡片 */
+  .item{
+    background:var(--card);border-radius:var(--radius);padding:12px;
+    display:flex;gap:12px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04);
+  }
+  .item .thumb{
+    width:64px;height:64px;border-radius:10px;object-fit:cover;background:var(--green-soft);
+    flex:0 0 64px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;
+  }
+  .item .info{flex:1;min-width:0;}
+  .item .name{font-size:15px;font-weight:600;}
+  .item .cat{font-size:12px;color:var(--muted);margin-top:2px;}
+  .item .meta{font-size:12px;color:var(--muted);margin-top:3px;}
+  .item .qty{font-size:14px;color:var(--green);font-weight:600;margin-top:4px;}
+  .item .empty-badge{display:inline-block;background:#FCEBEB;color:var(--danger);font-size:11px;padding:1px 6px;border-radius:6px;margin-left:6px;}
+  .item .acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .btn{
+    border:0;border-radius:8px;padding:7px 12px;font-size:13px;cursor:pointer;
+    background:var(--green-soft);color:var(--green);font-weight:600;
+  }
+  .btn.primary{background:var(--green);color:#fff;}
+  .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);}
+  .btn.danger{background:#FCEBEB;color:var(--danger);}
+  .btn.sm{padding:5px 10px;font-size:12px;}
+  .empty{text-align:center;color:var(--muted);padding:60px 20px;font-size:14px;}
+
+  /* 到期提醒 */
+  .exp-banner{background:#FFF6E5;border:1px solid #FAC775;color:#854F0B;border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px;line-height:1.5;}
+  .exp-badge{display:inline-block;font-size:11px;padding:1px 6px;border-radius:6px;margin-top:3px;}
+  .exp-badge.soon{background:#FAEEDA;color:#854F0B;}   /* 30 天内到期：琥珀色提醒 */
+  .exp-badge.over{background:#FCEBEB;color:var(--danger);} /* 已过期：红色 */
+  .exp-badge.ok{background:var(--green-soft);color:var(--green);} /* 远未到期：绿色 */
+
+  /* 表单 */
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
+  .field input,.field select{
+    width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+    font-size:15px;background:#fff;color:var(--ink);outline:0;
+  }
+  .field input:focus,.field select:focus{border-color:var(--green-mid);}
+  .row{display:flex;gap:10px;}
+  .row>*{flex:1;}
+  .cat-pick{
+    width:100%;padding:11px 12px;border:1px dashed var(--green-mid);border-radius:10px;
+    background:var(--green-soft);color:var(--green);font-size:14px;font-weight:600;
+    text-align:center;cursor:pointer;
+  }
+  .cam-wrap{display:flex;align-items:center;gap:12px;}
+  .cam-preview{width:80px;height:80px;border-radius:10px;object-fit:cover;background:var(--green-soft);display:none;}
+  .cam-label{flex:1;}
+
+  /* 底部导航 */
+  nav{
+    position:fixed;bottom:0;left:0;right:0;max-width:520px;margin:0 auto;z-index:30;
+    background:#fff;border-top:1px solid var(--line);display:flex;
+  }
+  nav button{
+    flex:1;border:0;background:#fff;padding:9px 0 7px;font-size:11px;color:var(--muted);
+    cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;
+  }
+  nav button.active{color:var(--green);font-weight:600;}
+  nav .ic{font-size:18px;line-height:1;}
+
+  /* 弹层（分类选择器 / 通用） */
+  .modal-mask{
+    position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:none;
+    align-items:flex-end;justify-content:center;
+  }
+  .modal-mask.show{display:flex;}
+  .modal{
+    background:#fff;width:100%;max-width:520px;border-radius:16px 16px 0 0;
+    max-height:80vh;display:flex;flex-direction:column;overflow:hidden;
+    animation:up .18s ease;
+  }
+  @keyframes up{from{transform:translateY(20px);opacity:.6;}to{transform:translateY(0);opacity:1;}}
+  .modal-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;}
+  .modal-head h3{margin:0;font-size:15px;}
+  .modal-body{padding:8px 0;overflow:auto;}
+  .picker-path{padding:6px 16px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);}
+  .picker-path b{color:var(--green);}
+  .opt{
+    padding:13px 16px;font-size:15px;border-bottom:1px solid #F2F4EF;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+  }
+  .opt:active{background:var(--green-soft);}
+  .opt .add{color:var(--green);font-weight:600;}
+  .modal-foot{padding:12px 16px;border-top:1px solid var(--line);}
+  .text-input{
+    width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:10px;outline:0;
+  }
+  .center{text-align:center;}
+  .hint{font-size:12px;color:var(--muted);line-height:1.7;}
+  .tree-big{font-weight:600;font-size:15px;padding:10px 16px;background:var(--green-soft);margin-top:6px;}
+  .tree-mid{font-size:14px;padding:8px 16px 8px 28px;color:var(--ink);}
+  .tree-small{font-size:13px;padding:5px 16px 5px 44px;color:var(--muted);}
+  .badge-custom{font-size:10px;background:var(--green);color:#fff;border-radius:4px;padding:0 4px;margin-left:6px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>家中日用品清单</h1>
+  <div class="sub">拍照入库 · 类图书馆管理 · 关键词检索</div>
+  <div class="search">
+    <span>🔍</span>
+    <input id="searchInput" type="search" placeholder="搜名称 / 分类 / 存放位置…" autocomplete="off">
+  </div>
+  <div class="stat" id="statBar">共 0 件物品</div>
+</header>
+
+<main>
+  <!-- 清单视图 -->
+  <section id="view-list" class="view active">
+    <div id="listBox"></div>
+  </section>
+
+  <!-- 新增视图 -->
+  <section id="view-add" class="view">
+    <div class="field">
+      <label>物品照片（手机可直接调用摄像头）</label>
+      <div class="cam-wrap">
+        <img id="camPreview" class="cam-preview" alt="预览">
+        <div class="cam-label">
+          <input id="photoInput" type="file" accept="image/*" capture="environment">
+          <div class="hint" style="margin-top:6px;">拍照后自动压缩存储，不占手机空间</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>物品名称</label>
+      <input id="nameInput" type="text" placeholder="如：舒肤佳沐浴露">
+    </div>
+
+    <div class="field">
+      <label>分类（三级：大类 / 中类 / 小类）</label>
+      <div id="catPickBtn" class="cat-pick">点击选择分类</div>
+      <div id="catPickText" style="font-size:12px;color:var(--muted);margin-top:6px;display:none;"></div>
+    </div>
+
+    <div class="field row">
+      <div>
+        <label>数量</label>
+        <input id="qtyInput" type="number" min="0" step="1" value="1" inputmode="decimal">
+      </div>
+      <div>
+        <label>单位</label>
+        <input id="unitInput" type="text" placeholder="瓶/包/个" list="unitList">
+        <datalist id="unitList">
+          <option value="瓶"><option value="包"><option value="个"><option value="盒">
+          <option value="袋"><option value="卷"><option value="支"><option value="条">
+          <option value="件"><option value="罐"><option value="g"><option value="kg">
+          <option value="ml"><option value="L">
+        </datalist>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>存放位置</label>
+      <input id="locInput" type="text" placeholder="如：卫生间二层" list="locList">
+      <datalist id="locList">
+        <option value="厨房"><option value="卫生间"><option value="卧室">
+        <option value="客厅"><option value="储物柜"><option value="阳台"><option value="玄关">
+      </datalist>
+    </div>
+
+    <div class="field">
+      <label>到期时间（选填，到期前 1 个月会提醒）</label>
+      <input id="expiryInput" type="date">
+    </div>
+
+    <button id="saveBtn" class="btn primary" style="width:100%;padding:13px;font-size:15px;">保存到清单</button>
+    <div id="formMsg" class="hint" style="margin-top:10px;"></div>
+  </section>
+
+  <!-- 分类视图 -->
+  <section id="view-cat" class="view">
+    <div id="catTree"></div>
+    <button id="addCatBtn" class="btn primary" style="width:100%;padding:13px;font-size:15px;margin-top:6px;">＋ 新建分类</button>
+  </section>
+
+  <!-- 设置视图 -->
+  <section id="view-set" class="view">
+    <div class="item" style="display:block;">
+      <div class="name">数据备份与恢复</div>
+      <div class="hint" style="margin:6px 0 10px;">数据存于本机浏览器。建议定期导出 JSON 备份（也满足工作区“留痕不覆盖”要求）。</div>
+      <div class="acts">
+        <button id="exportBtn" class="btn">导出 JSON</button>
+        <button id="importBtn" class="btn ghost">导入 JSON</button>
+        <input id="importInput" type="file" accept="application/json" style="display:none;">
+      </div>
+    </div>
+    <div class="item" style="display:block;">
+      <div class="name">安装到主屏（可离线、像 App 一样打开）</div>
+      <div class="hint" style="margin:6px 0 10px;">安装后可在主屏像原生 App 一样打开、离线可用。点击下方按钮安装；若按钮不可用，可在浏览器菜单选「添加到主屏幕」。</div>
+      <div class="acts">
+        <button id="installBtn" class="btn primary" style="display:none;">安装到主屏</button>
+      </div>
+    </div>
+    <div class="item" style="display:block;">
+      <div class="name">关于</div>
+      <div class="hint" style="margin-top:6px;">v3 · PWA 可安装版 · 本地 IndexedDB 存储 · 可离线打开、可装到主屏 · 含到期提醒（到期前 30 天提示）<br>分类锚定公开标准（京东居家/厨具、日用百货百科）。</div>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button data-view="list" class="active"><span class="ic">📋</span>清单</button>
+  <button data-view="add"><span class="ic">➕</span>新增</button>
+  <button data-view="cat"><span class="ic">🏷️</span>分类</button>
+  <button data-view="set"><span class="ic">⚙️</span>设置</button>
+</nav>
+
+<!-- 分类选择器弹层 -->
+<div class="modal-mask" id="pickerMask">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>选择分类</h3>
+      <button class="btn ghost sm" id="pickerCancel">取消</button>
+    </div>
+    <div class="picker-path" id="pickerPath">已选：<b>无</b></div>
+    <div class="modal-body" id="pickerBody"></div>
+  </div>
+</div>
+
+<!-- 新建分类弹层 -->
+<div class="modal-mask" id="newCatMask">
+  <div class="modal">
+    <div class="modal-head"><h3>新建分类</h3><button class="btn ghost sm" id="newCatCancel">取消</button></div>
+    <div class="modal-body" style="padding:14px 16px;">
+      <div id="newCatCtx" class="hint" style="margin-bottom:10px;"></div>
+      <input id="newCatName" class="text-input" type="text" placeholder="输入新分类名称">
+      <button id="newCatSave" class="btn primary" style="width:100%;padding:12px;">创建并选择</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============ 默认分类树（锚定公开标准：京东居家/厨具、日用百货百科、17J509-1 收纳归类） ============ */
+const DEFAULT_TAXONOMY = {
+  "清洁洗护":{
+    "个人卫生":["洗发水","沐浴露","牙膏","牙刷","洗面奶","护发素","香皂","洗手液"],
+    "家居清洁":["洗洁精","油污净","消毒液","洁厕灵","管道疏通剂","玻璃清洁剂","空气清新剂","除霉剂"],
+    "衣物清洁":["洗衣液","洗衣粉","洗衣凝珠","柔顺剂","衣领净","漂白剂"],
+    "清洁工具":["拖把","扫把","簸箕","抹布","百洁布","马桶刷","垃圾袋","垃圾桶","手套"]
+  },
+  "纸品文具":{
+    "纸品":["抽纸","卷纸","湿巾","湿厕纸","厨房纸巾","手帕纸"],
+    "文具":["笔","本子","文件夹","胶带","订书机","便利贴"]
+  },
+  "厨房用品":{
+    "烹饪锅具":["炒锅","汤锅","平底锅","蒸锅","奶锅","高压锅"],
+    "刀剪菜板":["菜刀","砧板","剪刀","磨刀器"],
+    "餐具器皿":["碗","盘","筷子","勺子","叉子","杯子","保温杯","保鲜盒"],
+    "厨房小工具":["开瓶器","削皮器","打蛋器","量杯","洗菜篮","调味瓶","油壶","擀面杖"],
+    "厨房清洁":["洗碗布","钢丝球","厨房纸","置物架","米桶"]
+  },
+  "食品饮料":{
+    "粮油调味":["大米","面粉","食用油","盐","酱油","醋","糖","料酒","调料"],
+    "饮品":["饮用水","饮料","咖啡","茶叶","牛奶","奶粉"],
+    "零食干货":["饼干","坚果","糖果","巧克力","南北干货","方便食品"]
+  },
+  "家居收纳":{
+    "收纳用品":["收纳箱","收纳盒","真空压缩袋","密封罐","挂钩","置物架"],
+    "晾晒用品":["衣架","晾衣夹","脏衣篮"],
+    "卫浴用品":["毛巾","浴巾","浴帽","地垫","马桶垫","花洒"],
+    "家用杂项":["雨伞","雨衣","针线","粘钩","蜡烛","蚊香","电池"]
+  },
+  "个护美妆":{
+    "护肤":["面霜","乳液","爽肤水","精华","护手霜","面膜","防晒霜"],
+    "彩妆":["口红","粉底","眉笔","眼影","卸妆液","腮红"],
+    "香水香氛":["香水","香薰","身体乳"],
+    "美容工具":["梳子","镜子","指甲剪","剃须刀","棉签","化妆棉"]
+  },
+  "医药健康":{
+    "常用药":["感冒药","退烧药","肠胃药","止痛药","创可贴","碘伏","体温计"],
+    "保健":["维生素","保健品","口罩"],
+    "急救护理":["绷带","纱布","药箱","酒精"]
+  },
+  "小家电":{
+    "个护小家电":["吹风机","电动牙刷","电动剃须刀","美容仪"],
+    "厨房小家电":["电饭煲","电水壶","微波炉","榨汁机","电烤箱","电磁炉"],
+    "生活小家电":["电风扇","加湿器","电熨斗","台灯","吸尘器","取暖器"]
+  },
+  "宠物用品":{
+    "宠物食品":["主粮","零食","罐头","磨牙棒"],
+    "清洁护理":["猫砂","宠物沐浴露","拾便袋","尿垫"],
+    "用品":["牵引绳","宠物窝","玩具","食盆"]
+  },
+  "家纺布艺":{
+    "床上用品":["床单","被套","枕套","被子","枕头","凉席","毛毯","蚊帐"],
+    "布艺软饰":["窗帘","桌布","餐垫","地毯","抱枕"]
+  }
+};
+
+/* ============ IndexedDB 封装 ============ */
+const DB_NAME="householdDB", DB_VER=1;
+let dbPromise=null;
+function openDB(){
+  if(dbPromise) return dbPromise;
+  dbPromise=new Promise((res,rej)=>{
+    const req=indexedDB.open(DB_NAME,DB_VER);
+    req.onupgradeneeded=e=>{
+      const db=e.target.result;
+      if(!db.objectStoreNames.contains("items")) db.createObjectStore("items",{keyPath:"id"});
+      if(!db.objectStoreNames.contains("kv")) db.createObjectStore("kv",{keyPath:"key"});
+    };
+    req.onsuccess=()=>res(req.result);
+    req.onerror=()=>rej(req.error);
+  });
+  return dbPromise;
+}
+function tx(store,mode){return openDB().then(db=>db.transaction(store,mode).objectStore(store));}
+function putItem(it){return tx("items","readwrite").then(s=>new Promise(r=>{s.put(it);s.transaction.oncomplete=r;}));}
+function delItem(id){return tx("items","readwrite").then(s=>new Promise(r=>{s.delete(id);s.transaction.oncomplete=r;}));}
+function allItems(){return tx("items","readonly").then(s=>new Promise((r,rej)=>{const q=s.getAll();q.onsuccess=()=>r(q.result);q.onerror=()=>rej(q.error);}));}
+function getKV(k){return tx("kv","readonly").then(s=>new Promise((r,rej)=>{const q=s.get(k);q.onsuccess=()=>r(q.result?q.result.val:undefined);q.onerror=()=>rej(q.error);}));}
+function setKV(k,v){return tx("kv","readwrite").then(s=>new Promise(r=>{s.put({key:k,val:v});s.transaction.oncomplete=r;}));}
+
+/* ============ 自定义分类（用户自建，持久化） ============ */
+let customCats={};            // 结构同 DEFAULT_TAXONOMY
+async function loadCustom(){customCats=await getKV("customCats")||{};}
+function saveCustom(){return setKV("customCats",customCats);}
+function mergeTaxonomy(){
+  const m=JSON.parse(JSON.stringify(DEFAULT_TAXONOMY));
+  for(const big in customCats){
+    if(!m[big]) m[big]={};
+    for(const mid in customCats[big]){
+      if(!m[big][mid]) m[big][mid]=[];
+      for(const sm of customCats[big][mid]) if(!m[big][mid].includes(sm)) m[big][mid].push(sm);
+    }
+  }
+  return m;
+}
+function addCustom(big,mid,small){
+  if(!customCats[big]) customCats[big]={};
+  if(!customCats[big][mid]) customCats[big][mid]=[];
+  if(small && !customCats[big][mid].includes(small)) customCats[big][mid].push(small);
+  return saveCustom();
+}
+
+/* ============ 照片压缩（参数说明：maxEdge 最长边像素上限；quality JPEG 压缩率 0~1） ============ */
+function compressImage(file,maxEdge,quality){
+  maxEdge=maxEdge||1200;   // 最长边不超过 1200px，既清晰又省空间
+  quality=quality||0.7;    // 0.7 在清晰度与体积间取得平衡
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image();
+      img.onload=()=>{
+        const scale=Math.min(1,maxEdge/Math.max(img.width,img.height));
+        const w=Math.round(img.width*scale),h=Math.round(img.height*scale);
+        const canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;
+        canvas.getContext("2d").drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL("image/jpeg",quality));
+      };
+      img.onerror=reject;img.src=e.target.result;
+    };
+    reader.onerror=reject;reader.readAsDataURL(file);
+  });
+}
+
+/* ============ 状态 & 渲染 ============ */
+let items=[];
+let formCat=null;            // {big,mid,small}
+let formPhoto=null;          // 压缩后的 dataURL
+
+async function refresh(){
+  items=await allItems();
+  renderList();
+  renderTree();
+  const n=items.length;
+  document.getElementById("statBar").textContent="共 "+n+" 件物品";
+}
+
+function renderList(){
+  const kw=document.getElementById("searchInput").value.trim().toLowerCase();
+  const box=document.getElementById("listBox");
+  let arr=items.slice().sort((a,b)=>b.updatedAt-a.updatedAt);
+  if(kw){
+    arr=arr.filter(it=>{
+      const hay=(it.name+" "+(it.cat?it.cat.big+it.cat.mid+it.cat.small:"")+" "+(it.location||"")).toLowerCase();
+      return hay.includes(kw);
+    });
+  }
+  if(arr.length===0){
+    box.innerHTML='<div class="empty">'+(kw?"没有匹配的物品":"清单还是空的，去「新增」拍第一件物品吧 📷")+'</div>';
+    return;
+  }
+  // 临期提醒：统计 30 天内到期与已过期数量（today 为当日零点，DAY=86400000 毫秒=1天）
+  const today=Date.now();const DAY=86400000;
+  let expSoon=0,expOver=0;
+  arr.forEach(it=>{if(it.expiry){const d=Math.ceil((new Date(it.expiry).getTime()-today)/DAY);if(d<=0)expOver++;else if(d<=30)expSoon++;}});
+  let banner="";
+  if(expSoon>0||expOver>0){
+    banner='<div class="exp-banner">⏰ 有 '+(expSoon+expOver)+' 件物品将在 1 个月内到期'+
+      (expOver>0?'（其中 '+expOver+' 件已过期）':'')+'，请优先使用。</div>';
+  }
+  box.innerHTML=banner+arr.map(it=>{
+    const cat=it.cat?it.cat.big+"/"+it.cat.mid+"/"+it.cat.small:"";
+    const thumb=it.photo?'<img class="thumb" src="'+it.photo+'">':'<div class="thumb">无图</div>';
+    const out=it.qty<=0?'<span class="empty-badge">已用完</span>':"";
+    // 到期文案：d<=0 已过期(红)；0<d<=30 即将到期(琥珀)；否则有效期至(绿)
+    let exp="";
+    if(it.expiry){
+      const d=Math.ceil((new Date(it.expiry).getTime()-today)/DAY);
+      if(d<=0) exp='<span class="exp-badge over">已过期（'+esc(it.expiry)+'）</span>';
+      else if(d<=30) exp='<span class="exp-badge soon">'+d+' 天后到期</span>';
+      else exp='<span class="exp-badge ok">有效期至 '+esc(it.expiry)+'</span>';
+    }
+    return '<div class="item">'+thumb+
+      '<div class="info"><div class="name">'+esc(it.name)+out+'</div>'+
+      '<div class="cat">'+esc(cat)+'</div>'+
+      (it.location?'<div class="meta">📍 '+esc(it.location)+'</div>':'')+
+      (exp?'<div class="meta">'+exp+'</div>':'')+
+      '<div class="qty">库存：'+it.qty+' '+esc(it.unit||"")+'</div>'+
+      '<div class="acts">'+
+        '<button class="btn sm" onclick="changeQty(\''+it.id+'\',-1)">－ 用掉</button>'+
+        '<button class="btn sm" onclick="changeQty(\''+it.id+'\',1)">＋ 补货</button>'+
+        '<button class="btn sm ghost" onclick="editItem(\''+it.id+'\')">编辑</button>'+
+        '<button class="btn sm danger" onclick="removeItem(\''+it.id+'\')">删除</button>'+
+      '</div></div></div>';
+  }).join("");
+}
+
+function renderTree(){
+  const t=mergeTaxonomy();
+  const box=document.getElementById("catTree");
+  let html="";
+  for(const big in t){
+    html+='<div class="tree-big">'+esc(big)+'</div>';
+    for(const mid in t[big]){
+      html+='<div class="tree-mid">'+esc(mid)+'</div>';
+      for(const sm of t[big][mid]) html+='<div class="tree-small">· '+esc(sm)+'</div>';
+    }
+  }
+  box.innerHTML=html;
+}
+
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+/* ============ 存货管理 ============ */
+async function changeQty(id,delta){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  it.qty=Math.max(0,it.qty+delta);it.updatedAt=Date.now();
+  await putItem(it);await refresh();
+}
+async function removeItem(id){
+  if(!confirm("确定删除该物品？"))return;
+  await delItem(id);await refresh();
+}
+async function editItem(id){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  switchView("add");
+  document.getElementById("nameInput").value=it.name||"";
+  formCat=it.cat||null;formPhoto=it.photo||null;
+  if(formPhoto){const p=document.getElementById("camPreview");p.src=formPhoto;p.style.display="block";}
+  if(formCat){showCatText();}
+  document.getElementById("qtyInput").value=it.qty||0;
+  document.getElementById("unitInput").value=it.unit||"";
+  document.getElementById("locInput").value=it.location||"";
+  document.getElementById("expiryInput").value=it.expiry||"";
+  document.getElementById("saveBtn").dataset.edit=id; // 标记编辑态
+  document.getElementById("saveBtn").textContent="保存修改";
+}
+
+/* ============ 新增 / 保存 ============ */
+document.getElementById("photoInput").addEventListener("change",async e=>{
+  const f=e.target.files[0];if(!f)return;
+  formPhoto=await compressImage(f);
+  const p=document.getElementById("camPreview");p.src=formPhoto;p.style.display="block";
+});
+document.getElementById("catPickBtn").addEventListener("click",openPicker);
+
+document.getElementById("saveBtn").addEventListener("click",async()=>{
+  const name=document.getElementById("nameInput").value.trim();
+  const qty=parseFloat(document.getElementById("qtyInput").value)||0;
+  const unit=document.getElementById("unitInput").value.trim();
+  const loc=document.getElementById("locInput").value.trim();
+  const expiry=document.getElementById("expiryInput").value||""; // 到期日期，格式 YYYY-MM-DD，可空
+  const msg=document.getElementById("formMsg");
+  if(!name){msg.textContent="请填写物品名称";return;}
+  if(!formCat){msg.textContent="请选择分类";return;}
+  const editId=document.getElementById("saveBtn").dataset.edit;
+  const it={
+    id:editId||("i"+Date.now()+Math.random().toString(36).slice(2,6)),
+    name,photo:formPhoto,cat:formCat,qty,unit,location:loc,expiry,
+    createdAt:editId?(items.find(x=>x.id===editId)||{}).createdAt||Date.now():Date.now(),
+    updatedAt:Date.now()
+  };
+  await putItem(it);
+  // 重置表单
+  document.getElementById("nameInput").value="";
+  document.getElementById("qtyInput").value="1";
+  document.getElementById("unitInput").value="";
+  document.getElementById("locInput").value="";
+  document.getElementById("expiryInput").value="";
+  document.getElementById("photoInput").value="";
+  document.getElementById("camPreview").style.display="none";formPhoto=null;
+  formCat=null;showCatText();
+  delete document.getElementById("saveBtn").dataset.edit;
+  document.getElementById("saveBtn").textContent="保存到清单";
+  msg.textContent="已保存 ✓";
+  await refresh();switchView("list");
+});
+
+function showCatText(){
+  const t=document.getElementById("catPickText"),b=document.getElementById("catPickBtn");
+  if(formCat){b.textContent=formCat.big+" / "+formCat.mid+" / "+formCat.small;b.style.borderStyle="solid";
+    t.textContent="已选分类，点击可重新选择";t.style.display="block";}
+  else{b.textContent="点击选择分类";b.style.borderStyle="dashed";t.style.display="none";}
+}
+
+/* ============ 分类选择器（分步弹层） ============ */
+let pickerState={big:null,mid:null};
+function openPicker(){
+  pickerState={big:null,mid:null};
+  document.getElementById("pickerMask").classList.add("show");
+  renderPicker();
+}
+function renderPicker(){
+  const t=mergeTaxonomy();
+  const path=document.getElementById("pickerPath");
+  const body=document.getElementById("pickerBody");
+  let p="已选：";
+  p+=pickerState.big?'<b>'+esc(pickerState.big)+'</b>':'无';
+  if(pickerState.mid) p+=' / <b>'+esc(pickerState.mid)+'</b>';
+  if(formCat&&pickerState.big&&pickerState.mid) p+=' / <b>'+(pickerState.small||"…")+'</b>';
+  path.innerHTML=p;
+  body.innerHTML="";
+  if(!pickerState.big){
+    for(const big in t) body.appendChild(opt(big,()=>{pickerState.big=big;pickerState.mid=null;pickerState.small=null;renderPicker();}));
+    body.appendChild(optAdd("新建大类",()=>openNewCat("big")));
+  }else if(!pickerState.mid){
+    for(const mid in t[pickerState.big]) body.appendChild(opt(mid,()=>{pickerState.mid=mid;pickerState.small=null;renderPicker();}));
+    body.appendChild(optAdd("新建中类",()=>openNewCat("mid")));
+  }else{
+    pickerState.small=null;
+    for(const sm of t[pickerState.big][pickerState.mid]) body.appendChild(opt(sm,()=>confirmPick(pickerState.big,pickerState.mid,sm)));
+    body.appendChild(optAdd("新建小类",()=>openNewCat("small")));
+  }
+}
+function opt(text,fn){const d=document.createElement("div");d.className="opt";d.textContent=text;d.onclick=fn;return d;}
+function optAdd(text,fn){const d=document.createElement("div");d.className="opt";d.innerHTML='<span class="add">＋ '+text+'</span>';d.onclick=fn;return d;}
+function confirmPick(big,mid,small){
+  formCat={big,mid,small};showCatText();
+  document.getElementById("pickerMask").classList.remove("show");
+}
+document.getElementById("pickerCancel").onclick=()=>document.getElementById("pickerMask").classList.remove("show");
+
+/* 新建分类弹层 */
+let newCatLevel=null;
+function openNewCat(level){
+  newCatLevel=level;
+  const ctx=document.getElementById("newCatCtx");
+  const t=mergeTaxonomy();
+  if(level==="big") ctx.textContent="将创建一个新的【大类】。";
+  if(level==="mid") ctx.textContent="将在「"+(pickerState.big||"")+"」下新建【中类】。";
+  if(level==="small") ctx.textContent="将在「"+(pickerState.big||"")+" / "+(pickerState.mid||"")+"」下新建【小类】。";
+  document.getElementById("newCatName").value="";
+  document.getElementById("newCatMask").classList.add("show");
+}
+document.getElementById("newCatCancel").onclick=()=>document.getElementById("newCatMask").classList.remove("show");
+document.getElementById("newCatSave").onclick=async()=>{
+  const name=document.getElementById("newCatName").value.trim();
+  if(!name)return;
+  if(newCatLevel==="big"){addCustom(name,"未分类",null);pickerState.big=name;pickerState.mid=null;}
+  if(newCatLevel==="mid"){addCustom(pickerState.big,name,null);pickerState.mid=name;}
+  if(newCatLevel==="small"){addCustom(pickerState.big,pickerState.mid,name);confirmPick(pickerState.big,pickerState.mid,name);}
+  await saveCustom();
+  document.getElementById("newCatMask").classList.remove("show");
+  renderPicker();renderTree();
+};
+
+/* ============ 备份 / 恢复 ============ */
+document.getElementById("exportBtn").onclick=async()=>{
+  const data={version:1,exportedAt:new Date().toISOString(),customCats,items};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  const d=new Date();const pad=n=>(""+n).padStart(2,"0");
+  a.href=URL.createObjectURL(blob);
+  a.download="日用品清单备份_"+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+".json";
+  a.click();URL.revokeObjectURL(a.href);
+};
+document.getElementById("importBtn").onclick=()=>document.getElementById("importInput").click();
+document.getElementById("importInput").onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const text=await f.text();
+  try{
+    const data=JSON.parse(text);
+    if(data.customCats) customCats=Object.assign(customCats,data.customCats);
+    if(Array.isArray(data.items)){for(const it of data.items) await putItem(it);}
+    await saveCustom();await refresh();
+    alert("导入完成，共 "+data.items.length+" 件物品。");
+  }catch(err){alert("导入失败：文件格式不正确。");}
+  e.target.value="";
+};
+
+/* ============ 安装到主屏（PWA） ============ */
+let deferredPrompt=null;
+const installBtn=document.getElementById("installBtn");
+window.addEventListener("beforeinstallprompt",(e)=>{
+  e.preventDefault();deferredPrompt=e;installBtn.style.display="";
+});
+installBtn.addEventListener("click",async()=>{
+  if(!deferredPrompt)return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt=null;installBtn.style.display="none";
+});
+window.addEventListener("appinstalled",()=>{installBtn.style.display="none";});
+
+/* ============ 导航 ============ */
+function switchView(v){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
+  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("active",s.id==="view-"+v));
+}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+document.getElementById("searchInput").addEventListener("input",renderList);
+document.getElementById("addCatBtn").onclick=()=>openNewCatFromTree();
+function openNewCatFromTree(){
+  // 从分类页新建：先开选择器确定父级，再新建
+  openPicker();
+  // 弹出后用户可点“新建大类/中类/小类”完成创建
+}
+
+/* ============ PWA：注册 Service Worker（仅 http/https 环境，file:// 跳过） ============ */
+if("serviceWorker" in navigator && location.protocol.startsWith("http")){
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("./sw.js").catch(err=>console.warn("SW 注册失败：",err));
+  });
+}
+
+/* ============ 启动 ============ */
+(async()=>{await openDB();await loadCustom();await refresh();})();
+</script>
+</body>
+</html>
